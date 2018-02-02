@@ -50,6 +50,10 @@ angular.module("ngDraggable", [])
 
                 var getDragData = $parse(attrs.ngDragData);
 
+                var scrollContainer = angular.isDefined(attrs.ngDragScrollContainer) ? angular.element(attrs.ngDragScrollContainer)[0] : null;
+                var dragScrolledX = 0;
+                var dragScrolledY = 0;
+
                 // deregistration function for mouse move events in $rootScope triggered by jqLite trigger handler
                 var _deregisterRootMoveListener = angular.noop;
 
@@ -157,7 +161,6 @@ angular.module("ngDraggable", [])
                         _dragOffset = {left:document.body.scrollLeft, top:document.body.scrollTop};
                     }
 
-
                     element.centerX = element[0].offsetWidth / 2;
                     element.centerY = element[0].offsetHeight / 2;
 
@@ -172,6 +175,10 @@ angular.module("ngDraggable", [])
                         _tx = _mx - _mrx - $window.pageXOffset;
                         _ty = _my - _mry - $window.pageYOffset;
                     }
+
+                    // Initialize drag scrolled amount at drag start.
+                    dragScrolledX = 0;
+                    dragScrolledY = 0;
 
                     $document.on(_moveEvents, onmove);
                     $document.on(_releaseEvents, onrelease);
@@ -200,8 +207,26 @@ angular.module("ngDraggable", [])
                         }
                     }
 
-                    _mx = ngDraggable.inputEvent(evt).pageX;//ngDraggable.getEventProp(evt, 'pageX');
-                    _my = ngDraggable.inputEvent(evt).pageY;//ngDraggable.getEventProp(evt, 'pageY');
+                    // _inputEvent is the DOM event where pageX and pageY are read-only.
+                    // evt is the jQuery wrapped event where pageX and pageY are just regular object properties.
+                    var _inputEvent = ngDraggable.inputEvent(evt);
+
+                    // Compute and record the accumulated drag scroll amounts from event draggable:_triggerHandlerMove
+                    // triggered inside ngDragScroll
+                    if ((typeof evt.dragScrolled !== 'undefined')) {
+                        dragScrolledX += evt.dragScrolledX;
+                        dragScrolledY += evt.dragScrolledY;
+                    }
+
+                    // Adjust evt.pageX and evt.pageY for user-triggered move events by drag scrolled amounts accordingly.
+                    // Note: Move events triggered by ngDragScroll has the flag 'dragScrolled' set.
+                    if (scrollContainer && (typeof evt.dragScrolled === 'undefined')) {
+                        evt.pageX = _inputEvent.pageX + dragScrolledX;
+                        evt.pageY = _inputEvent.pageY + dragScrolledY;
+                    }
+
+                    _mx = evt.pageX;//ngDraggable.getEventProp(evt, 'pageX');
+                    _my = evt.pageY;//ngDraggable.getEventProp(evt, 'pageY');
 
                     if (_centerAnchor) {
                         _tx = _mx - element.centerX - _dragOffset.left;
@@ -289,6 +314,10 @@ angular.module("ngDraggable", [])
                 var onDragStopCallback = $parse(attrs.ngDragStop);
                 var onDragMoveCallback = $parse(attrs.ngDragMove);
 
+                var scrollContainer = angular.isDefined(attrs.ngDragScrollContainer) ? angular.element(attrs.ngDragScrollContainer)[0] : null;
+                var dragStartScrollLeft = 0;
+                var dragStartScrollTop = 0;
+
                 var initialize = function () {
                     toggleListeners(true);
                 };
@@ -313,6 +342,11 @@ angular.module("ngDraggable", [])
                 };
                 var onDragStart = function(evt, obj) {
                     if(! _dropEnabled)return;
+
+                    // Record original scroll offsets before dragging with scroll container.
+                    dragStartScrollLeft = (typeof scrollContainer !== 'undefined') ? scrollContainer.scrollLeft : 0;
+                    dragStartScrollTop = (typeof scrollContainer !== 'undefined') ? scrollContainer.scrollTop : 0;
+
                     isTouching(obj.x,obj.y,obj.element);
 
                     if (attrs.ngDragStart) {
@@ -387,6 +421,13 @@ angular.module("ngDraggable", [])
                     var bounds = element[0].getBoundingClientRect();// ngDraggable.getPrivOffset(element);
                     x -= $document[0].body.scrollLeft + $document[0].documentElement.scrollLeft;
                     y -= $document[0].body.scrollTop + $document[0].documentElement.scrollTop;
+
+                    // Adjust coordinates by drag scrolled amounts before hit test.
+                    if (scrollContainer) {
+                        x -= scrollContainer.scrollLeft - dragStartScrollLeft;
+                        y -= scrollContainer.scrollTop - dragStartScrollTop;
+                    }
+
                     return  x >= bounds.left
                         && x <= bounds.right
                         && y <= bounds.bottom
@@ -529,12 +570,14 @@ angular.module("ngDraggable", [])
             }
         };
     }])
-    .directive('ngDragScroll', ['$window', '$interval', '$timeout', '$document', '$rootScope', function($window, $interval, $timeout, $document, $rootScope) {
+    .directive('ngDragScroll', ['$window', '$interval', '$timeout', '$document', '$rootScope', 'ngDraggable', function($window, $interval, $timeout, $document, $rootScope, ngDraggable) {
         return {
             restrict: 'A',
             link: function(scope, element, attrs) {
                 var intervalPromise = null;
                 var lastMouseEvent = null;
+                var scrollContainer = angular.isDefined(attrs.ngDragScrollContainer) ? angular.element(attrs.ngDragScrollContainer)[0] : null;
+                var allowTransform = angular.isDefined(attrs.allowTransform) ? scope.$eval(attrs.allowTransform) : true;
 
                 var config = {
                     verticalScroll: angular.isDefined(attrs.verticalScroll) ? scope.$eval(attrs.verticalScroll) : true,
@@ -542,7 +585,6 @@ angular.module("ngDraggable", [])
                     activationDistance: parseInt(attrs.activationDistance) || 75,
                     scrollDistance: parseInt(attrs.scrollDistance) || 15
                 };
-
 
                 var reqAnimFrame = (function() {
                     return window.requestAnimationFrame ||
@@ -580,13 +622,22 @@ angular.module("ngDraggable", [])
                         var scrollX = 0;
                         var scrollY = 0;
 
+                        // _inputEvent is the DOM event where pageX and pageY are read-only.
+                        // lastMouseEvent is the jQuery wrapped event where pageX and pageY are just regular object
+                        // properties.
+                        // On mobile, lastMouseEvent is the jQuery wrapper for the actual 'touchmove' event
+                        // (_inputEvent). So clientX and clientY only exist in _inputEvent but not in lastMouseEvent.
+                        // On web, lastMouseEvent is the actual 'mousemove' event (_inputEvent). So clientX and clientY
+                        // exist.
+                        var _inputEvent = ngDraggable.inputEvent(lastMouseEvent);
+
                         if (config.horizontalScroll) {
                             // If horizontal scrolling is active.
-                            if (lastMouseEvent.clientX < config.activationDistance) {
+                            if (_inputEvent.clientX < config.activationDistance) {
                                 // If the mouse is on the left of the viewport within the activation distance.
                                 scrollX = -config.scrollDistance;
                             }
-                            else if (lastMouseEvent.clientX > viewportWidth - config.activationDistance) {
+                            else if (_inputEvent.clientX > viewportWidth - config.activationDistance) {
                                 // If the mouse is on the right of the viewport within the activation distance.
                                 scrollX = config.scrollDistance;
                             }
@@ -594,37 +645,69 @@ angular.module("ngDraggable", [])
 
                         if (config.verticalScroll) {
                             // If vertical scrolling is active.
-                            if (lastMouseEvent.clientY < config.activationDistance) {
+                            if (_inputEvent.clientY < config.activationDistance) {
                                 // If the mouse is on the top of the viewport within the activation distance.
                                 scrollY = -config.scrollDistance;
                             }
-                            else if (lastMouseEvent.clientY > viewportHeight - config.activationDistance) {
+                            else if (_inputEvent.clientY > viewportHeight - config.activationDistance) {
                                 // If the mouse is on the bottom of the viewport within the activation distance.
                                 scrollY = config.scrollDistance;
                             }
                         }
 
-
-
                         if (scrollX !== 0 || scrollY !== 0) {
                             // Record the current scroll position.
-                            var currentScrollLeft = ($window.pageXOffset || $document[0].documentElement.scrollLeft);
-                            var currentScrollTop = ($window.pageYOffset || $document[0].documentElement.scrollTop);
+                            var _currentScrollLeft;
+                            var _currentScrollTop;
+
+                            if (scrollContainer) {
+                                _currentScrollLeft = scrollContainer.scrollLeft;
+                                _currentScrollTop = scrollContainer.scrollTop;
+                            } else {
+                                _currentScrollLeft = ($window.pageXOffset || $document[0].documentElement.scrollLeft);
+                                _currentScrollTop = ($window.pageYOffset || $document[0].documentElement.scrollTop);
+                            }
 
                             // Remove the transformation from the element, scroll the window by the scroll distance
                             // record how far we scrolled, then reapply the element transformation.
-                            var elementTransform = element.css('transform');
-                            element.css('transform', 'initial');
+                            var _elementTransform = element.css('transform');
 
-                            $window.scrollBy(scrollX, scrollY);
+                            if (allowTransform) {
+                                element.css('transform', 'initial');
+                            }
 
-                            var horizontalScrollAmount = ($window.pageXOffset || $document[0].documentElement.scrollLeft) - currentScrollLeft;
-                            var verticalScrollAmount =  ($window.pageYOffset || $document[0].documentElement.scrollTop) - currentScrollTop;
+                            if (scrollContainer) {
+                                scrollContainer.scrollLeft = scrollContainer.scrollLeft + scrollX;
+                                scrollContainer.scrollTop = scrollContainer.scrollTop + scrollY;
+                            } else {
+                                $window.scrollBy(scrollX, scrollY);
+                            }
 
-                            element.css('transform', elementTransform);
+                            // Check the actual amount of scrolling here since the container may not scroll
+                            // after passing the top or bottom of the container.
+                            var _horizontalScrollAmount;
+                            var _verticalScrollAmount;
 
-                            lastMouseEvent.pageX += horizontalScrollAmount;
-                            lastMouseEvent.pageY += verticalScrollAmount;
+                            if (scrollContainer) {
+                                _horizontalScrollAmount = scrollContainer.scrollLeft - _currentScrollLeft;
+                                _verticalScrollAmount = scrollContainer.scrollTop - _currentScrollTop;
+                            } else {
+                                _horizontalScrollAmount = ($window.pageXOffset || $document[0].documentElement.scrollLeft) - _currentScrollLeft;
+                                _verticalScrollAmount =  ($window.pageYOffset || $document[0].documentElement.scrollTop) - _currentScrollTop;
+                            }
+
+                            if (allowTransform) {
+                                element.css('transform', _elementTransform);
+                            }
+
+                            // lastMouseEvent is the jQuery wrapper for event so pageX and pageY are not read-only.
+                            lastMouseEvent.pageX += _horizontalScrollAmount;
+                            lastMouseEvent.pageY += _verticalScrollAmount;
+
+                            // Set flag and scroll amounts for onmove to process.
+                            lastMouseEvent.dragScrolled = true;
+                            lastMouseEvent.dragScrolledX = _horizontalScrollAmount;
+                            lastMouseEvent.dragScrolledY = _verticalScrollAmount;
 
                             $rootScope.$emit('draggable:_triggerHandlerMove', lastMouseEvent);
                         }
