@@ -537,10 +537,10 @@ angular.module("ngDraggable", [])
                 var lastMouseEvent = null;
 
                 var config = {
-                    verticalScroll: attrs.verticalScroll || true,
-                    horizontalScroll: attrs.horizontalScroll || true,
-                    activationDistance: attrs.activationDistance || 75,
-                    scrollDistance: attrs.scrollDistance || 15
+                    verticalScroll: angular.isDefined(attrs.verticalScroll) ? scope.$eval(attrs.verticalScroll) : true,
+                    horizontalScroll: angular.isDefined(attrs.horizontalScroll) ? scope.$eval(attrs.horizontalScroll) : true,
+                    activationDistance: parseInt(attrs.activationDistance) || 75,
+                    scrollDistance: parseInt(attrs.scrollDistance) || 15
                 };
 
 
