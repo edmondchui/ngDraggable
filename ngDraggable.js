@@ -27,7 +27,6 @@ angular.module("ngDraggable", [])
             link: function (scope, element, attrs) {
                 scope.value = attrs.ngDrag;
                 var offset,_centerAnchor=false,_mx,_my,_tx,_ty,_mrx,_mry;
-                var _hasTouch = ('ontouchstart' in window) || window.DocumentTouch && document instanceof DocumentTouch;
                 var _pressEvents = 'touchstart mousedown';
                 var _moveEvents = 'touchmove mousemove';
                 var _releaseEvents = 'touchend mouseup';
@@ -211,18 +210,19 @@ angular.module("ngDraggable", [])
                     // evt is the jQuery wrapped event where pageX and pageY are just regular object properties.
                     var _inputEvent = ngDraggable.inputEvent(evt);
 
-                    // Compute and record the accumulated drag scroll amounts from event draggable:_triggerHandlerMove
-                    // triggered inside ngDragScroll
-                    if ((typeof evt.dragScrolled !== 'undefined')) {
-                        dragScrolledX += evt.dragScrolledX;
-                        dragScrolledY += evt.dragScrolledY;
-                    }
-
-                    // Adjust evt.pageX and evt.pageY for user-triggered move events by drag scrolled amounts accordingly.
-                    // Note: Move events triggered by ngDragScroll has the flag 'dragScrolled' set.
-                    if (scrollContainer && (typeof evt.dragScrolled === 'undefined')) {
-                        evt.pageX = _inputEvent.pageX + dragScrolledX;
-                        evt.pageY = _inputEvent.pageY + dragScrolledY;
+                    if (scrollContainer) {
+                        if (typeof evt.dragScrolled === 'undefined') {
+                            // Adjust evt.pageX and evt.pageY for user-triggered move events by drag scrolled amounts
+                            // accordingly.
+                            // Note: Move events triggered by ngDragScroll has the flag 'dragScrolled' set.
+                            evt.pageX = _inputEvent.pageX + dragScrolledX;
+                            evt.pageY = _inputEvent.pageY + dragScrolledY;
+                        } else {
+                            // Compute and record the accumulated drag scroll amounts from event
+                            // draggable:_triggerHandlerMove triggered inside ngDragScroll
+                            dragScrolledX += evt.dragScrolledX;
+                            dragScrolledY += evt.dragScrolledY;
+                        }
                     }
 
                     _mx = evt.pageX;//ngDraggable.getEventProp(evt, 'pageX');
@@ -574,7 +574,6 @@ angular.module("ngDraggable", [])
         return {
             restrict: 'A',
             link: function(scope, element, attrs) {
-                var intervalPromise = null;
                 var lastMouseEvent = null;
                 var scrollContainer = angular.isDefined(attrs.ngDragScrollContainer) ? angular.element(attrs.ngDragScrollContainer)[0] : null;
                 var allowTransform = angular.isDefined(attrs.allowTransform) ? scope.$eval(attrs.allowTransform) : true;
