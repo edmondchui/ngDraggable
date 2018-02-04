@@ -99,8 +99,7 @@ angular.module("ngDraggable", [])
                     _dragEnabled = (newVal);
                 };
                 var onCenterAnchor = function (newVal, oldVal) {
-                    if(angular.isDefined(newVal))
-                        _centerAnchor = (newVal || 'true');
+                    _centerAnchor = angular.isDefined(newVal) ? newVal : true;
                 };
 
                 var isClickableElement = function (evt) {
