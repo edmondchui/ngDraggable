@@ -313,6 +313,9 @@ angular.module("ngDraggable", [])
                 var onDragStopCallback = $parse(attrs.ngDragStop);
                 var onDragMoveCallback = $parse(attrs.ngDragMove);
 
+                var isDropVertical = angular.isDefined(attrs.ngDropOrientation) ? (scope.$eval(attrs.ngDropOrientation).toLowerCase() === 'vertical') : false;
+                var dropOffset, hitFirstHalf;
+
                 var scrollContainer = angular.isDefined(attrs.ngDragScrollContainer) ? angular.element(attrs.ngDragScrollContainer)[0] : null;
                 var dragStartScrollLeft = 0;
                 var dragStartScrollTop = 0;
@@ -345,6 +348,7 @@ angular.module("ngDraggable", [])
                     // Record original scroll offsets before dragging with scroll container.
                     dragStartScrollLeft = (typeof scrollContainer !== 'undefined') ? scrollContainer.scrollLeft : 0;
                     dragStartScrollTop = (typeof scrollContainer !== 'undefined') ? scrollContainer.scrollTop : 0;
+                    dropOffset = isDropVertical ? element[0].offsetHeight / 2 : element[0].offsetWidth / 2;
 
                     isTouching(obj.x,obj.y,obj.element);
 
@@ -366,7 +370,6 @@ angular.module("ngDraggable", [])
                 };
 
                 var onDragEnd = function (evt, obj) {
-
                     // don't listen to drop events if this is the element being dragged
                     // only update the styles and return
                     if (!_dropEnabled || _myid === obj.uid) {
@@ -380,6 +383,7 @@ angular.module("ngDraggable", [])
                         }
 
                         if (attrs.ngDropSuccess) {
+                            obj.hitFirstHalf = element.hasClass('drag-enter-left') || element.hasClass('drag-enter-top');
                             $timeout(function(){
                                 onDropCallback(scope, {$data: obj.data, $event: obj, $target: scope.$eval(scope.value)});
                             });
@@ -408,16 +412,30 @@ angular.module("ngDraggable", [])
                 var updateDragStyles = function(touching, dragElement) {
                     if(touching){
                         element.addClass('drag-enter');
+                        if (isDropVertical) {
+                            if (hitFirstHalf) {
+                                element.removeClass('drag-enter-bottom').addClass('drag-enter-top');
+                            } else {
+                                element.removeClass('drag-enter-top').addClass('drag-enter-bottom');
+                            }
+                        } else {
+                            if (hitFirstHalf) {
+                                element.removeClass('drag-enter-right').addClass('drag-enter-left');
+                            } else {
+                                element.removeClass('drag-enter-left').addClass('drag-enter-right');
+                            }
+                        }
                         dragElement.addClass('drag-over');
                     }else if(_lastDropTouch == element){
                         _lastDropTouch=null;
-                        element.removeClass('drag-enter');
+                        element.removeClass('drag-enter drag-enter-top drag-enter-bottom drag-enter-left drag-enter-right');
                         dragElement.removeClass('drag-over');
                     }
                 };
 
                 var hitTest = function(x, y) {
-                    var bounds = element[0].getBoundingClientRect();// ngDraggable.getPrivOffset(element);
+                    var _bounds = element[0].getBoundingClientRect();// ngDraggable.getPrivOffset(element);
+
                     x -= $document[0].body.scrollLeft + $document[0].documentElement.scrollLeft;
                     y -= $document[0].body.scrollTop + $document[0].documentElement.scrollTop;
 
@@ -427,10 +445,17 @@ angular.module("ngDraggable", [])
                         y -= scrollContainer.scrollTop - dragStartScrollTop;
                     }
 
-                    return  x >= bounds.left
-                        && x <= bounds.right
-                        && y <= bounds.bottom
-                        && y >= bounds.top;
+                    var _hit = (x >= _bounds.left && x <= _bounds.right && y <= _bounds.bottom && y >= _bounds.top);
+
+                    if (_hit) {
+                        if (isDropVertical) {
+                          hitFirstHalf = (y < _bounds.top + dropOffset);
+                        } else {
+                          hitFirstHalf = (x < _bounds.left + dropOffset);
+                        }
+                    }
+
+                    return _hit;
                 };
 
                 initialize();
